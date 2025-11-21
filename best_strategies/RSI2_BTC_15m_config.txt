@@ -1,0 +1,1 @@
+{'rsi_len': 2, 'buy_lvl': 5, 'sell_lvl': 95, 'exit_ma': 10}

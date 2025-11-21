@@ -1,0 +1,1 @@
+{'fast_ema': 50, 'slow_ema': 200, 'n_estimators': 100, 'max_depth': 5, 'threshold': 0.52}

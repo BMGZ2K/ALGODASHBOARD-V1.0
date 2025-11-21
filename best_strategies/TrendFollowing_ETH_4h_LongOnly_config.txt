@@ -1,0 +1,1 @@
+{'fast_ema': 50, 'slow_ema': 100, 'long_only': True}

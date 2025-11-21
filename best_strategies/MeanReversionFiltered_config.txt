@@ -1,0 +1,1 @@
+{'bb_len': 30, 'bb_std': 2.0, 'adx_threshold': 25}

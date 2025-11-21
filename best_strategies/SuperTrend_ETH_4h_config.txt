@@ -1,0 +1,1 @@
+{'length': 10, 'multiplier': 4.0, 'long_only': True}
