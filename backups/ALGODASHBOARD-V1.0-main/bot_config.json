@@ -1,0 +1,7 @@
+{
+    "risk_per_trade": 0.015,
+    "max_positions": 20,
+    "leverage_cap": 3,
+    "sentiment_sensitivity": 0.5,
+    "use_heikin_ashi": true
+}

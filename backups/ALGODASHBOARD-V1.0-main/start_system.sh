@@ -11,9 +11,9 @@ sleep 2
 
 # Starts the bot in background
 echo "Starting Trading Bot..."
-nohup venv/bin/python -u run_live.py > logs/bot_output.log 2>&1 &
+nohup venv/bin/python -u run_live.py > bot_output.log 2>&1 &
 echo "🤖 Bot started in background (PID $!)"
 
 # Starts the dashboard
 echo "Starting Web Dashboard..."
-venv/bin/streamlit run dashboard.py --server.port 8501 --server.address 0.0.0.0 --server.headless true > logs/dashboard.log 2>&1 &
+venv/bin/streamlit run dashboard.py --server.port 8501 --server.address 0.0.0.0 --server.headless true > dashboard.log 2>&1 &

@@ -1,0 +1,1 @@
+{'st_len': 10, 'st_mult': 3.0, 'rsi_len': 14, 'rsi_buy': 40}

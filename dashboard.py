@@ -1,255 +1,290 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.express as px
 import json
 import time
 import os
+from datetime import datetime
 
+# --- PAGE CONFIG ---
 st.set_page_config(
-    page_title="Gemini 3.0 Algo Dashboard",
-    page_icon="🚀",
+    page_title="Gemini 3.0 Pro Terminal",
+    page_icon="⚡",
     layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-st.title("🚀 Gemini 3.0: Live Trading Dashboard")
-
-# --- 1. READ STATE ---
-STATE_FILE = "dashboard_state.json"
-LOG_FILE = "trades_log.csv"
-BOT_OUTPUT_LOG = "bot_output.log"
-
-# Default State Function
-def get_default_state():
-    return {
-        'timestamp': "Waiting...",
-        'symbol': "LOADING",
-        'price': 0.0,
-        'trend': 0,
-        'rsi': 50,
-        'breakout_level': 0,
-        'position': 0.0,
-        'pnl': 0.0,
-        'entry_price': 0.0,
-        'trailing_active': False,
-        'trailing_stop': 0.0,
-        'mode': 'OFFLINE'
+# --- CUSTOM CSS ---
+st.markdown("""
+    <style>
+    .stApp {
+        background-color: #0e1117;
     }
+    .metric-card {
+        background-color: #1e2127;
+        padding: 15px;
+        border-radius: 10px;
+        border: 1px solid #2e3137;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    .stDataFrame {
+        border: 1px solid #2e3137;
+        border-radius: 5px;
+    }
+    h1, h2, h3 {
+        color: #e0e0e0;
+        font-family: 'Inter', sans-serif;
+    }
+    .status-badge {
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-weight: bold;
+        font-size: 0.8em;
+    }
+    .status-ok { background-color: #1c4a28; color: #4ade80; }
+    .status-warn { background-color: #4a3a1c; color: #facc15; }
+    .status-err { background-color: #4a1c1c; color: #f87171; }
+    </style>
+""", unsafe_allow_html=True)
 
-if not os.path.exists(STATE_FILE):
-    state = get_default_state()
-    st.warning("Bot offline or initializing...")
-else:
+# --- PATHS ---
+STATE_FILE = "state/dashboard_state.json"
+LOG_FILE = "logs/trades_log.csv"
+BOT_OUTPUT_LOG = "logs/bot_output.log"
+STRATEGY_LOG_FILE = "logs/strategy_analysis.log"
+HISTORY_FILE = "logs/balance_history.csv"
+
+# --- HELPER FUNCTIONS ---
+def load_json(filepath):
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
+
+def get_status_color(val, threshold_low, threshold_high, inverse=False):
+    if inverse:
+        if val < threshold_low: return "green"
+        if val < threshold_high: return "orange"
+        return "red"
+    else:
+        if val > threshold_high: return "green"
+        if val > threshold_low: return "orange"
+        return "red"
+
+# --- SIDEBAR ---
+with st.sidebar:
+    st.title("⚡ Gemini 3.0")
+    st.caption("Advanced Algo-Trading System")
+    
+    state = load_json(STATE_FILE)
+    last_update = state.get('timestamp', 'N/A')
+    
+    # System Health
+    st.subheader("System Health")
+    
+    # Check staleness
+    is_stale = False
     try:
-        with open(STATE_FILE, 'r') as f:
-            state = json.load(f)
+        last_ts = pd.to_datetime(last_update)
+        latency = (pd.Timestamp.now() - last_ts).total_seconds()
+        if latency > 30:
+            is_stale = True
+            st.error(f"🔴 System Stale ({latency:.0f}s ago)")
+        else:
+            st.success(f"🟢 Online ({latency:.1f}s latency)")
     except:
-        state = get_default_state()
+        st.warning("⚪ Initializing...")
 
-# Check for staleness (if data is older than 30 seconds)
-is_stale = False
-try:
-    last_update = pd.to_datetime(state['timestamp'])
-    if (pd.Timestamp.now() - last_update).total_seconds() > 30:
-        is_stale = True
-except:
-    pass
+    # Controls
+    st.divider()
+    st.subheader("Controls")
+    refresh_rate = st.slider("Refresh Rate (s)", 1, 60, 2)
+    
+    if st.button("🔄 Force Refresh"):
+        st.rerun()
+        
+    st.divider()
+    st.subheader("Emergency")
+    panic_confirm = st.checkbox("Arm Panic Button")
+    if st.button("🚨 CLOSE ALL POSITIONS", type="primary", disabled=not panic_confirm):
+        with open("state/bot_commands.json", "w") as f:
+            json.dump({"command": "CLOSE_ALL"}, f)
+        st.toast("🚨 PANIC COMMAND SENT!", icon="🔥")
 
-if is_stale:
-    st.error("⚠️ Data might be stale! Bot may have stopped.")
-
-# --- 1. PORTFOLIO OVERVIEW ---
-st.subheader("Portfolio Overview")
-col1, col2, col3, col4, col5, col6 = st.columns(6)
+# --- MAIN CONTENT ---
+# Top Metrics Row
+col1, col2, col3, col4 = st.columns(4)
 
 balance = state.get('balance', 0.0)
+avail = state.get('available_balance', 0.0)
+pnl = state.get('realized_pnl', 0.0)
 positions = state.get('positions', {})
 sentiment = state.get('sentiment', 0.5)
-realized_pnl = state.get('realized_pnl', 0.0)
-available_margin = state.get('available_balance', 0.0)
-
-longs = sum(1 for p in positions.values() if p['amt'] > 0)
-shorts = sum(1 for p in positions.values() if p['amt'] < 0)
-total_pnl = sum(p['pnl'] for p in positions.values())
 
 with col1:
-    st.metric("Total Balance (USDT)", f"${balance:.2f}")
-
+    st.metric("Total Balance", f"${balance:,.2f}", delta=f"${pnl:,.2f} Session")
 with col2:
-    st.metric("Realized PnL (Session)", f"${realized_pnl:.2f}", delta=f"{realized_pnl:.2f}")
-
+    margin_used = balance - avail
+    margin_pct = (margin_used / balance) * 100 if balance > 0 else 0
+    st.metric("Margin Used", f"{margin_pct:.1f}%", f"${avail:,.2f} Free", delta_color="inverse")
 with col3:
-    st.metric("Available Margin", f"${available_margin:.2f}")
-
+    open_pnl = sum(p['pnl'] for p in positions.values())
+    st.metric("Open PnL", f"${open_pnl:,.2f}", delta=f"{open_pnl:,.2f}")
 with col4:
-    st.metric("Active Positions", f"{len(positions)} / 20")
+    sent_color = "off"
+    if sentiment > 0.6: sent_text = "BULLISH"; sent_color = "normal"
+    elif sentiment < 0.4: sent_text = "BEARISH"; sent_color = "inverse"
+    else: sent_text = "NEUTRAL"; sent_color = "off"
+    st.metric("Market Sentiment", f"{sentiment:.2f}", sent_text, delta_color=sent_color)
 
-with col5:
-    total_open_pnl = sum(p['pnl'] for p in positions.values())
-    st.metric("Total Open PnL", f"${total_open_pnl:.2f}", delta=f"{total_open_pnl:.2f}")
+# --- TABS ---
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Dashboard", "📊 Analytics", "🔎 Scanner", "📝 Logs", "🧠 Strategy Analysis"])
 
-with col6:
-    longs = sum(1 for p in positions.values() if p['amt'] > 0)
-    shorts = sum(1 for p in positions.values() if p['amt'] < 0)
-    st.metric("L/S Exposure", f"{longs}L | {shorts}S")
-
-# --- AUTO-PILOT STATUS ---
-st.info(f"🤖 **AUTO-PILOT ACTIVE** | Risk: 2.0% | Max Pos: 20 | Lev Cap: 5x | Heikin Ashi: ON")
-
-# --- ACTIVE POSITIONS ---
-if positions:
-    st.subheader(f"📋 Active Positions ({len(positions)})")
-    pos_data = []
-    for sym, data in positions.items():
-        pos_data.append({
-            "Symbol": sym,
-            "Size": f"{data['amt']:.4f}",
-            "Entry": f"${data['entry']:.4f}",
-            "PnL": f"${data['pnl']:.2f}"
-        })
-    st.dataframe(pd.DataFrame(pos_data), use_container_width=True)
-else:
-    st.info("No active positions. Scanning...")
-
-# --- 2. ACCOUNT PERFORMANCE ---
-st.subheader("Account Performance")
-HISTORY_FILE = "balance_history.csv"
-
-if os.path.exists(HISTORY_FILE):
-    try:
-        df_hist = pd.read_csv(HISTORY_FILE)
-        df_hist['timestamp'] = pd.to_datetime(df_hist['timestamp'])
-        df_hist = df_hist.set_index('timestamp')
-        
-        # Resample to 1min or keep raw if not too dense
-        # For now, just show last 100 points
-        df_show = df_hist.tail(200)
-        
-        col_h1, col_h2 = st.columns(2)
-        
-        with col_h1:
-            st.write("**Balance Growth**")
-            st.line_chart(df_show['balance'], color='#00FF00')
-            
-        with col_h2:
-            st.write("**Open PnL & Sentiment**")
-            # Normalize sentiment to match PnL scale? No, separate chart better.
-            # Let's just show PnL here
-            st.area_chart(df_show['open_pnl'], color='#FFA500')
-            
-        st.caption(f"Tracking {len(df_hist)} data points.")
-            
-    except Exception as e:
-        st.error(f"Error loading history: {e}")
-else:
-    st.info("Waiting for history data...")
-
-# --- 3. MARKET SCANNER ---
-st.subheader("Market Scanner (Real-Time)")
-scan_data = state.get('market_scan', {})
-
-if scan_data:
-    rows = []
-    for sym, data in scan_data.items():
-        trend_icon = "⬆️" if data['trend'] == 'BULL' else ("⬇️" if data['trend'] == 'BEAR' else "➡️")
-        signal_color = "🟢" if "LONG" in data['signal'] else ("🔴" if "SHORT" in data['signal'] else "⚪")
-        
-        # Determine sort priority: Active Signals > High ADX > Others
-        priority = 0
-        if "LONG" in data['signal'] or "SHORT" in data['signal']: priority = 2
-        elif data['adx'] > 25: priority = 1
-        
-        rows.append({
-            "Symbol": sym,
-            "Price": f"${data['price']:.2f}",
-            "Trend": f"{trend_icon} {data['trend']}",
-            "RSI": f"{data['rsi']:.1f}",
-            "ADX": f"{data['adx']:.1f}",
-            "Signal": f"{signal_color} {data['signal']}",
-            "_priority": priority # Hidden sort column
-        })
+with tab1:
+    # Active Positions
+    st.subheader(f"Active Positions ({len(positions)})")
     
-    df_scan = pd.DataFrame(rows)
-    # Sort by priority (descending)
-    df_scan = df_scan.sort_values(by='_priority', ascending=False).drop(columns=['_priority'])
-    
-    st.dataframe(df_scan, use_container_width=True, height=500)
-else:
-    st.warning("Waiting for scanner data...")
-
-# --- 4. SYSTEM STATUS & CONTROLS ---
-st.subheader("System Status & Controls")
-col_s1, col_s2 = st.columns(2)
-
-with col_s1:
-    blacklist = state.get('blacklist', [])
-    if blacklist:
-        st.error(f"🚫 Blacklisted Symbols ({len(blacklist)}): {', '.join(blacklist)}")
+    if positions:
+        pos_data = []
+        for sym, data in positions.items():
+            entry = data['entry']
+            price = data.get('price', entry) # Fallback
+            pnl = data['pnl']
+            amt = data['amt']
+            roi = (pnl / (abs(amt) * entry / 5)) * 100 if entry > 0 else 0 # Est 5x lev
+            
+            pos_data.append({
+                "Symbol": sym,
+                "Side": "LONG" if amt > 0 else "SHORT",
+                "Size": abs(amt),
+                "Entry": entry,
+                "PnL": pnl,
+                "ROI": roi,
+                "Duration": data.get('entry_time', 'N/A')
+            })
+        
+        df_pos = pd.DataFrame(pos_data)
+        
+        st.dataframe(
+            df_pos,
+            column_config={
+                "Symbol": st.column_config.TextColumn("Pair", help="Trading Pair"),
+                "Side": st.column_config.TextColumn("Side"),
+                "Size": st.column_config.NumberColumn("Size", format="%.4f"),
+                "Entry": st.column_config.NumberColumn("Entry", format="$%.4f"),
+                "PnL": st.column_config.NumberColumn("PnL (USDT)", format="$%.2f"),
+                "ROI": st.column_config.ProgressColumn("ROI %", format="%.2f%%", min_value=-100, max_value=100),
+            },
+            use_container_width=True 
+        )
     else:
-        st.success("✅ System Healthy: No Blacklisted Symbols")
+        st.info("✨ No active positions. Scanning for opportunities...")
 
-with col_s2:
-    st.write("**Emergency Controls**")
-    if st.button("🚨 CLOSE ALL POSITIONS (PANIC)", type="primary"):
-        with open("bot_commands.json", "w") as f:
-            json.dump({"command": "CLOSE_ALL"}, f)
-        st.warning("Command Sent! Waiting for bot to execute...")
-
-# --- 5. PERFORMANCE METRICS ---
-st.subheader("Performance Metrics")
-col_p1, col_p2, col_p3 = st.columns(3)
-
-if os.path.exists(LOG_FILE):
-    try:
-        df_trades = pd.read_csv(LOG_FILE)
-        total_trades = len(df_trades)
-        last_trade = df_trades.iloc[-1]['timestamp'] if not df_trades.empty else "N/A"
-        
-        # Simple Win Rate Estimation (very rough, assumes alternating buy/sell for same symbol)
-        # This is just a placeholder for now until we have a proper closed trade log
-        
-        with col_p1:
-            st.metric("Total Executions", total_trades)
-        with col_p2:
-            st.metric("Last Activity", last_trade.split('T')[-1].split('.')[0] if 'T' in last_trade else last_trade)
-        with col_p3:
-            st.metric("Active Symbols", len(state.get('positions', {})))
+    # Charts Row
+    c1, c2 = st.columns(2)
+    
+    if os.path.exists(HISTORY_FILE):
+        try:
+            df_hist = pd.read_csv(HISTORY_FILE)
+            df_hist['timestamp'] = pd.to_datetime(df_hist['timestamp'], format='mixed', errors='coerce')
+            df_hist.dropna(subset=['timestamp'], inplace=True)
             
-    except Exception as e:
-        st.error(f"Error calculating metrics: {e}")
+            with c1:
+                st.subheader("Balance Growth")
+                fig_bal = px.area(df_hist, x='timestamp', y='balance', template="plotly_dark")
+                fig_bal.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0))
+                st.plotly_chart(fig_bal, use_container_width=True)
+                
+            with c2:
+                st.subheader("Open PnL Volatility")
+                fig_pnl = px.bar(df_hist, x='timestamp', y='open_pnl', color='open_pnl', 
+                                color_continuous_scale=["red", "gray", "green"], template="plotly_dark")
+                fig_pnl.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0))
+                st.plotly_chart(fig_pnl, use_container_width=True)
+        except Exception as e:
+            st.error(f"Chart Error: {e}")
 
-# --- 4. LOGS ---
-st.subheader("Bot Activity Logs")
-col_logs, col_term = st.columns(2)
-
-with col_logs:
-    st.write("Recent Trades")
+with tab2:
+    st.subheader("Performance Analytics")
     if os.path.exists(LOG_FILE):
-        try:
-            df_trades = pd.read_csv(LOG_FILE)
-            st.dataframe(df_trades.tail(10).sort_index(ascending=False))
-        except Exception as e:
-            st.error(f"Error reading log file: {e}")
-    else:
-        st.info("No trades logged yet.")
+        df_trades = pd.read_csv(LOG_FILE)
+        df_filled = df_trades[df_trades['status'].str.contains('FILLED', na=False)]
+        
+        if not df_filled.empty:
+            col_a1, col_a2, col_a3 = st.columns(3)
+            with col_a1:
+                st.metric("Total Trades", len(df_filled))
+            with col_a2:
+                # Rough win rate estimation (needs closed trade logic)
+                st.metric("Volume Traded", "N/A") 
+            with col_a3:
+                st.metric("Avg Trade Size", f"${df_filled['amount'].mean() * df_filled['price'].mean():.2f}")
+            
+            st.dataframe(df_filled.sort_index(ascending=False), use_container_width=True)
+        else:
+            st.info("No trade history available yet.")
 
-with col_term:
-    st.subheader("Bot Terminal Output")
+with tab3:
+    st.subheader("Market Scanner")
+    scan_data = state.get('market_scan', {})
+    if scan_data:
+        rows = []
+        for sym, data in scan_data.items():
+            rows.append({
+                "Symbol": sym,
+                "Price": data['price'],
+                "Trend": data['trend'],
+                "RSI": data['rsi'],
+                "ADX": data['adx'],
+                "Signal": data['signal']
+            })
+        
+        df_scan = pd.DataFrame(rows)
+        st.dataframe(
+            df_scan,
+            column_config={
+                "Price": st.column_config.NumberColumn("Price", format="$%.4f"),
+                "RSI": st.column_config.ProgressColumn("RSI", min_value=0, max_value=100, format="%.1f"),
+                "ADX": st.column_config.NumberColumn("ADX", format="%.1f"),
+                "Trend": st.column_config.TextColumn("Trend"),
+            },
+            use_container_width=True
+        )
+    else:
+        st.warning("Scanner initializing...")
+
+with tab4:
+    st.subheader("System Logs")
     if os.path.exists(BOT_OUTPUT_LOG):
-        try:
-            # Read last 20 lines
-            with open(BOT_OUTPUT_LOG, "r") as f:
-                lines = f.readlines()
-                last_lines = lines[-20:]
-                st.text_area("Last 20 lines", "".join(last_lines), height=300)
-        except Exception as e:
-            st.error(f"Error reading output log: {e}")
+        with open(BOT_OUTPUT_LOG, "r") as f:
+            lines = f.readlines()[-50:]
+            st.code("".join(lines), language="text")
+
+with tab5:
+    st.subheader("Strategy Decision Logic")
+    st.caption("Detailed breakdown of why trades were taken or rejected.")
+    
+    if st.button("🗑️ Clear Strategy Log"):
+        open(STRATEGY_LOG_FILE, 'w').close()
+        st.toast("Log Cleared!")
+        st.rerun()
+        
+    if os.path.exists(STRATEGY_LOG_FILE):
+        with open(STRATEGY_LOG_FILE, "r") as f:
+            # Read last 200 lines to avoid huge load
+            lines = f.readlines()[-200:]
+            # Reverse to show newest first
+            lines.reverse() 
+            
+            log_content = "".join(lines)
+            st.text_area("Analysis Log (Newest First)", log_content, height=600)
     else:
-        st.info("No terminal output found.")
+        st.info("No strategy analysis logs found yet.")
 
-# --- 5. FOOTER ---
-st.markdown("---")
-st.caption(f"Last Update: {state['timestamp']} | Engine: Python 3.10+ | UI: Streamlit")
-
-# --- AUTO-REFRESH ---
-time.sleep(2)
+# Auto-Refresh
+time.sleep(refresh_rate)
 st.rerun()

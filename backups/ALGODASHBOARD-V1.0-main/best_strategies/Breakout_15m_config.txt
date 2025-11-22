@@ -1,0 +1,1 @@
+{'window': 96, 'adx_threshold': 20}

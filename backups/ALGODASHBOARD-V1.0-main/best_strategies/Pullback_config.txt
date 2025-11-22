@@ -1,0 +1,1 @@
+{'ema_trend': 100, 'rsi_len': 14, 'rsi_buy': 40, 'rsi_sell': 70}

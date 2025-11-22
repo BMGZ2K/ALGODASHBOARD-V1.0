@@ -1,0 +1,11 @@
+🚀 LIVE BOT INITIALIZED | Mode: TESTNET
+Targets: 58 Pairs | Strategy: Multi-Regime Hybrid + MTF Alignment + Stoch Scalp
+   ℹ️  Applying Verified Testnet Configuration (demo-fapi)...
+   🔄 Loading Exchange Markets...
+   🔄 Session Resumed. Start Balance: $4708.36
+   ⏱️  Poll Interval: 5s
+
+--- 🔎 Scanning Market (58 Pairs) | Sentiment: 0.50 ---
+
+--- 🔎 Scan (58 Pairs) | Sent: 0.50 | PnL: $-632.10 | Margin: $364.99 ---
+🚨 CIRCUIT BREAKER TRIGGERED: Drawdown -20.11% exceeds limit. Halting trading.

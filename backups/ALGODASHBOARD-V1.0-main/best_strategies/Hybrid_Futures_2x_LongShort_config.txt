@@ -1,0 +1,1 @@
+{'st_len': 14, 'st_mult': 1.5, 'rsi_len': 14, 'rsi_buy': 50, 'atr_len': 14, 'tp_mult': 3.0, 'breakout_window': 96}

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini Trading Bot Dashboard</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-color: #e2e8f0;
+            --accent-color: #3b82f6;
+            --success-color: #22c55e;
+            --danger-color: #ef4444;
+            --warning-color: #f59e0b;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #334155;
+        }
+        h1 { margin: 0; font-size: 1.5rem; color: var(--accent-color); }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .card {
+            background-color: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .card h3 { margin: 0 0 10px 0; font-size: 0.9rem; color: #94a3b8; }
+        .card .value { font-size: 1.8rem; font-weight: bold; }
+        .positive { color: var(--success-color); }
+        .negative { color: var(--danger-color); }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background-color: var(--card-bg);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        th, td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #334155;
+        }
+        th { background-color: #334155; color: #e2e8f0; font-weight: 600; }
+        tr:last-child td { border-bottom: none; }
+        
+        .badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+        .badge-long { background-color: rgba(34, 197, 94, 0.2); color: var(--success-color); }
+        .badge-short { background-color: rgba(239, 68, 68, 0.2); color: var(--danger-color); }
+        
+        #last-updated { font-size: 0.8rem; color: #64748b; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1>🤖 Gemini Bot Dashboard</h1>
+                <span id="last-updated">Waiting for data...</span>
+            </div>
+            <div>
+                <span class="badge" id="sentiment-badge">Sentiment: --</span>
+            </div>
+        </header>
+
+        <div class="stats-grid">
+            <div class="card">
+                <h3>Total Balance</h3>
+                <div class="value" id="balance">--</div>
+            </div>
+            <div class="card">
+                <h3>Available Margin</h3>
+                <div class="value" id="margin">--</div>
+            </div>
+            <div class="card">
+                <h3>Realized PnL</h3>
+                <div class="value" id="realized-pnl">--</div>
+            </div>
+            <div class="card">
+                <h3>Active Positions</h3>
+                <div class="value" id="active-count">--</div>
+            </div>
+        </div>
+
+        <h2>Active Positions</h2>
+        <table id="positions-table">
+            <thead>
+                <tr>
+                    <th>Symbol</th>
+                    <th>Side</th>
+                    <th>Size</th>
+                    <th>Entry Price</th>
+                    <th>Current Price</th>
+                    <th>PnL (USDT)</th>
+                    <th>ROI</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td colspan="7" style="text-align:center">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        async function updateDashboard() {
+            try {
+                // In a real web app, this would fetch from an API. 
+                // Since we are local, we'll try to fetch the JSON file directly.
+                // Note: This requires a local server or browser allowing local file access (or we just refresh).
+                // For this environment, we assume the user opens this file and we might need to mock or poll.
+                // ACTUALLY, simpler: We will embed the JSON data if we were generating a static report.
+                // But for a live dashboard, we need to fetch 'dashboard_state.json'.
+                
+                const response = await fetch('dashboard_state.json?t=' + new Date().getTime());
+                const data = await response.json();
+
+                // Update Header
+                document.getElementById('last-updated').textContent = 'Last Updated: ' + new Date(data.timestamp).toLocaleTimeString();
+                
+                const sentiment = data.sentiment;
+                const sentBadge = document.getElementById('sentiment-badge');
+                sentBadge.textContent = `Sentiment: ${sentiment.toFixed(2)}`;
+                sentBadge.style.backgroundColor = sentiment > 0.6 ? 'rgba(34, 197, 94, 0.2)' : (sentiment < 0.4 ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)');
+                sentBadge.style.color = sentiment > 0.6 ? '#22c55e' : (sentiment < 0.4 ? '#ef4444' : '#f59e0b');
+
+                // Update Stats
+                document.getElementById('balance').textContent = '$' + data.balance.toFixed(2);
+                document.getElementById('margin').textContent = '$' + data.available_balance.toFixed(2);
+                
+                const rPnl = data.realized_pnl;
+                const rPnlEl = document.getElementById('realized-pnl');
+                rPnlEl.textContent = (rPnl >= 0 ? '+' : '') + '$' + rPnl.toFixed(2);
+                rPnlEl.className = 'value ' + (rPnl >= 0 ? 'positive' : 'negative');
+
+                const positions = data.positions;
+                document.getElementById('active-count').textContent = Object.keys(positions).length;
+
+                // Update Table
+                const tbody = document.querySelector('#positions-table tbody');
+                tbody.innerHTML = '';
+
+                for (const [symbol, pos] of Object.entries(positions)) {
+                    const row = document.createElement('tr');
+                    const isLong = pos.amt > 0;
+                    const side = isLong ? 'LONG' : 'SHORT';
+                    const pnl = pos.pnl;
+                    const entry = pos.entry;
+                    // Current price isn't in 'positions' directly usually, but we can infer or use market_scan if available
+                    // Actually, let's use market_scan if available, else just show entry
+                    const marketData = data.market_scan[symbol] || {};
+                    const currentPrice = marketData.price || entry; // Fallback
+                    
+                    // ROI
+                    const roi = (pnl / (Math.abs(pos.amt) * entry)) * 100;
+
+                    row.innerHTML = `
+                        <td style="font-weight:bold">${symbol}</td>
+                        <td><span class="badge ${isLong ? 'badge-long' : 'badge-short'}">${side}</span></td>
+                        <td>${Math.abs(pos.amt)}</td>
+                        <td>${entry}</td>
+                        <td>${currentPrice}</td>
+                        <td class="${pnl >= 0 ? 'positive' : 'negative'}">${(pnl >= 0 ? '+' : '')}${pnl.toFixed(2)}</td>
+                        <td class="${roi >= 0 ? 'positive' : 'negative'}">${roi.toFixed(2)}%</td>
+                    `;
+                    tbody.appendChild(row);
+                }
+            } catch (e) {
+                console.error("Error fetching data:", e);
+            }
+        }
+
+        // Auto-refresh every 2 seconds
+        setInterval(updateDashboard, 2000);
+        updateDashboard();
+    </script>
+</body>
+</html>
