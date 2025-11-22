@@ -49,9 +49,13 @@ def calculate_indicators(df, params):
     if adx is not None and not adx.empty:
         adx_col = [c for c in adx.columns if c.startswith('ADX')][0]
         current_adx = adx.iloc[-1][adx_col]
+        prev_adx = adx.iloc[-2][adx_col] if len(adx) > 1 else current_adx
+        
         if pd.isna(current_adx): current_adx = 0.0
+        if pd.isna(prev_adx): prev_adx = 0.0
     else:
         current_adx = 0.0
+        prev_adx = 0.0
     
     # SuperTrend (Fast)
     st = ta.supertrend(calc_high, calc_low, calc_close, length=10, multiplier=1.5)
@@ -131,5 +135,6 @@ def calculate_indicators(df, params):
         'prev_stoch_k': prev_stoch_k,
         'prev_stoch_d': prev_stoch_d,
         'donchian_high': donchian_high,
-        'donchian_low': donchian_low
+        'donchian_low': donchian_low,
+        'prev_adx': prev_adx
     }

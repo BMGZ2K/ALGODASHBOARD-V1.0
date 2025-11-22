@@ -130,34 +130,45 @@ def run_bot(snapshot=False):
             # B. Market Scan (Entry/Exit Signals)
             strategy_params = load_strategy_config("Hybrid_Futures_2x_LongShort")
             
-            for symbol in ACTIVE_SYMBOLS:
-                current_pos_data = active_positions.get(symbol, {'amt': 0.0, 'entry': 0.0, 'pnl': 0.0})
+            # Parallel Analysis
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            def analyze_wrapper(sym):
+                pos_data = active_positions.get(sym, {'amt': 0.0, 'entry': 0.0, 'pnl': 0.0})
+                return analyze_symbol(sym, exchange, pos_data, usdt_balance, available_balance, IS_SPOT_MODE, SIMULATION_MODE, global_sentiment, BLACKLIST, strategy_params)
+
+            # Use 10 workers for parallel processing to speed up scanning without hitting rate limits too hard
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                future_to_symbol = {executor.submit(analyze_wrapper, sym): sym for sym in ACTIVE_SYMBOLS}
                 
-                # Analyze
-                res = analyze_symbol(symbol, exchange, current_pos_data, usdt_balance, available_balance, IS_SPOT_MODE, SIMULATION_MODE, global_sentiment, BLACKLIST, strategy_params)
-                
-                if res:
-                    # Update State Memory
-                    if symbol in active_positions:
-                        active_positions[symbol]['max_price'] = res.get('max_price', 0.0)
-                        active_positions[symbol]['min_price'] = res.get('min_price', 0.0)
-                        active_positions[symbol]['trail_stop'] = res.get('trail_stop', 0.0)
-                    
-                    # Dashboard Data
-                    current_market_scan_data[symbol] = {
-                        'price': res['price'],
-                        'trend': 'BULL' if res['trend'] == 1 else ('BEAR' if res['trend'] == -1 else 'SIDEWAYS'),
-                        'rsi': res['rsi'],
-                        'adx': res['adx'],
-                        'signal': res['signal'],
-                        'pos': res['position'],
-                        'pnl': res['pnl']
-                    }
-                    
-                    current_trends.append(res['trend'])
-                    
-                    if res['action']:
-                        proposed_actions.append(res['action'])
+                for future in as_completed(future_to_symbol):
+                    try:
+                        res = future.result()
+                        if res:
+                            symbol = res['symbol']
+                            # Update State Memory
+                            if symbol in active_positions:
+                                active_positions[symbol]['max_price'] = res.get('max_price', 0.0)
+                                active_positions[symbol]['min_price'] = res.get('min_price', 0.0)
+                                active_positions[symbol]['trail_stop'] = res.get('trail_stop', 0.0)
+                            
+                            # Dashboard Data
+                            current_market_scan_data[symbol] = {
+                                'price': res['price'],
+                                'trend': 'BULL' if res['trend'] == 1 else ('BEAR' if res['trend'] == -1 else 'SIDEWAYS'),
+                                'rsi': res['rsi'],
+                                'adx': res['adx'],
+                                'signal': res['signal'],
+                                'pos': res['position'],
+                                'pnl': res['pnl']
+                            }
+                            
+                            current_trends.append(res['trend'])
+                            
+                            if res['action']:
+                                proposed_actions.append(res['action'])
+                    except Exception as exc:
+                        print(f"   ❌ Analysis Error for {future_to_symbol[future]}: {exc}")
 
             # Update Sentiment
             if current_trends:

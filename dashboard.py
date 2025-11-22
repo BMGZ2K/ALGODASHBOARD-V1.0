@@ -102,7 +102,8 @@ with st.sidebar:
     # Controls
     st.divider()
     st.subheader("Controls")
-    refresh_rate = st.slider("Refresh Rate (s)", 1, 60, 2)
+    refresh_rate = 1 # Fixed 1s refresh for real-time updates
+
     
     if st.button("🔄 Force Refresh"):
         st.rerun()
@@ -126,14 +127,14 @@ positions = state.get('positions', {})
 sentiment = state.get('sentiment', 0.5)
 
 with col1:
-    st.metric("Total Balance", f"${balance:,.2f}", delta=f"${pnl:,.2f} Session")
+    st.metric("Total Balance", f"${balance:,.2f}", delta=f"{pnl:,.2f} Session", delta_color="normal")
 with col2:
     margin_used = balance - avail
     margin_pct = (margin_used / balance) * 100 if balance > 0 else 0
-    st.metric("Margin Used", f"{margin_pct:.1f}%", f"${avail:,.2f} Free", delta_color="inverse")
+    st.metric("Margin Used", f"{margin_pct:.1f}%", f"${avail:,.2f} Free", delta_color="normal")
 with col3:
     open_pnl = sum(p['pnl'] for p in positions.values())
-    st.metric("Open PnL", f"${open_pnl:,.2f}", delta=f"{open_pnl:,.2f}")
+    st.metric("Open PnL", f"${open_pnl:,.2f}", delta=f"{open_pnl:,.2f}", delta_color="normal")
 with col4:
     sent_color = "off"
     if sentiment > 0.6: sent_text = "BULLISH"; sent_color = "normal"
@@ -191,42 +192,105 @@ with tab1:
         try:
             df_hist = pd.read_csv(HISTORY_FILE)
             df_hist['timestamp'] = pd.to_datetime(df_hist['timestamp'], format='mixed', errors='coerce')
-            df_hist.dropna(subset=['timestamp'], inplace=True)
             
-            with c1:
-                st.subheader("Balance Growth")
-                fig_bal = px.area(df_hist, x='timestamp', y='balance', template="plotly_dark")
-                fig_bal.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0))
-                st.plotly_chart(fig_bal, use_container_width=True)
+            # Ensure numeric columns
+            cols_to_numeric = ['balance', 'open_pnl']
+            for col in cols_to_numeric:
+                if col in df_hist.columns:
+                    df_hist[col] = pd.to_numeric(df_hist[col], errors='coerce')
+            
+            # Drop rows with invalid timestamp or critical data
+            df_hist.dropna(subset=['timestamp', 'balance', 'open_pnl'], inplace=True)
+            
+            if not df_hist.empty:
+                with c1:
+                    st.subheader("Balance Growth")
+                    fig_bal = px.area(df_hist, x='timestamp', y='balance', template="plotly_dark", line_shape='spline')
+                    fig_bal.update_traces(line_color='#4ade80', fillcolor='rgba(74, 222, 128, 0.2)')
+                    fig_bal.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0))
+                    st.plotly_chart(fig_bal, use_container_width=True)
+                    
+                with c2:
+                    st.subheader("Open PnL History")
+                    fig_pnl = px.area(df_hist, x='timestamp', y='open_pnl', template="plotly_dark", line_shape='spline')
+                    fig_pnl.update_traces(line_color='#60a5fa', fillcolor='rgba(96, 165, 250, 0.2)')
+                    fig_pnl.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0))
+                    st.plotly_chart(fig_pnl, use_container_width=True)
+            else:
+                st.info("Not enough history data to chart.")
                 
-            with c2:
-                st.subheader("Open PnL Volatility")
-                fig_pnl = px.bar(df_hist, x='timestamp', y='open_pnl', color='open_pnl', 
-                                color_continuous_scale=["red", "gray", "green"], template="plotly_dark")
-                fig_pnl.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0))
-                st.plotly_chart(fig_pnl, use_container_width=True)
         except Exception as e:
             st.error(f"Chart Error: {e}")
 
 with tab2:
     st.subheader("Performance Analytics")
     if os.path.exists(LOG_FILE):
-        df_trades = pd.read_csv(LOG_FILE)
-        df_filled = df_trades[df_trades['status'].str.contains('FILLED', na=False)]
-        
-        if not df_filled.empty:
-            col_a1, col_a2, col_a3 = st.columns(3)
-            with col_a1:
-                st.metric("Total Trades", len(df_filled))
-            with col_a2:
-                # Rough win rate estimation (needs closed trade logic)
-                st.metric("Volume Traded", "N/A") 
-            with col_a3:
-                st.metric("Avg Trade Size", f"${df_filled['amount'].mean() * df_filled['price'].mean():.2f}")
+        try:
+            df_trades = pd.read_csv(LOG_FILE)
+            # Filter for FILLED trades
+            df_filled = df_trades[df_trades['status'].str.contains('FILLED', na=False)].copy()
             
-            st.dataframe(df_filled.sort_index(ascending=False), use_container_width=True)
-        else:
-            st.info("No trade history available yet.")
+            # Ensure PnL column exists (for backward compatibility)
+            if 'pnl' not in df_filled.columns:
+                df_filled['pnl'] = 0.0
+            
+            # Fill NaNs in PnL with 0
+            df_filled['pnl'] = df_filled['pnl'].fillna(0.0)
+            
+            if not df_filled.empty:
+                # --- METRICS ---
+                col_a1, col_a2, col_a3, col_a4 = st.columns(4)
+                
+                total_trades = len(df_filled)
+                total_vol = (df_filled['price'] * df_filled['amount']).sum()
+                avg_size = total_vol / total_trades if total_trades > 0 else 0
+                total_realized_pnl = df_filled['pnl'].sum()
+                
+                with col_a1:
+                    st.metric("Total Trades", total_trades)
+                with col_a2:
+                    st.metric("Volume Traded", f"${total_vol:,.2f}")
+                with col_a3:
+                    st.metric("Avg Trade Size", f"${avg_size:,.2f}")
+                with col_a4:
+                    st.metric("Realized PnL", f"${total_realized_pnl:,.2f}", 
+                              delta=f"{total_realized_pnl:,.2f}", delta_color="normal")
+                
+                st.divider()
+                
+                # --- DETAILED TRADE HISTORY ---
+                st.subheader("Trade History")
+                
+                # Format Timestamp
+                df_filled['timestamp'] = pd.to_datetime(df_filled['timestamp']).dt.strftime('%Y-%m-%d %H:%M:%S')
+                
+                # Select and Rename Columns for Display
+                df_display = df_filled[['timestamp', 'symbol', 'side', 'price', 'amount', 'pnl', 'reason']].copy()
+                df_display.columns = ['Time', 'Symbol', 'Side', 'Price', 'Size', 'Realized PnL', 'Reason']
+                
+                # Sort by Time Descending
+                df_display = df_display.sort_values('Time', ascending=False)
+
+                st.dataframe(
+                    df_display,
+                    column_config={
+                        "Time": st.column_config.TextColumn("Time"),
+                        "Symbol": st.column_config.TextColumn("Pair"),
+                        "Side": st.column_config.TextColumn("Side"),
+                        "Price": st.column_config.NumberColumn("Price", format="$%.4f"),
+                        "Size": st.column_config.NumberColumn("Size", format="%.4f"),
+                        "Realized PnL": st.column_config.NumberColumn("Realized PnL", format="$%.2f"),
+                        "Reason": st.column_config.TextColumn("Signal/Reason"),
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.info("No trade history available yet.")
+        except Exception as e:
+            st.error(f"Error loading analytics: {e}")
+    else:
+        st.info("Log file not found.")
 
 with tab3:
     st.subheader("Market Scanner")

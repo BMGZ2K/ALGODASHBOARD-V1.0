@@ -4,13 +4,13 @@ import time
 from datetime import datetime
 from .config import LOG_FILE
 
-def log_trade(timestamp, symbol, side, amount, price, reason, status):
+def log_trade(timestamp, symbol, side, amount, price, reason, status, pnl=0.0):
     file_exists = os.path.isfile(LOG_FILE)
     with open(LOG_FILE, mode='a', newline='') as file:
         writer = csv.writer(file)
         if not file_exists:
-            writer.writerow(['timestamp', 'symbol', 'side', 'amount', 'price', 'reason', 'status'])
-        writer.writerow([timestamp, symbol, side, amount, price, reason, status])
+            writer.writerow(['timestamp', 'symbol', 'side', 'amount', 'price', 'reason', 'status', 'pnl'])
+        writer.writerow([timestamp, symbol, side, amount, price, reason, status, pnl])
 
 def execute_trade_safely(exchange, symbol, side, amount, price, params, current_margin, active_positions, blacklist, signal_msg):
     """
@@ -22,6 +22,7 @@ def execute_trade_safely(exchange, symbol, side, amount, price, params, current_
     final_amount = amount
     leverage = 5 # Synced with LEVERAGE_CAP
     max_attempts = 5
+    realized_pnl = 0.0 # Track PnL for this trade
     
     # Ensure symbol is uppercase to match CCXT keys
     symbol = symbol.upper()
@@ -51,13 +52,35 @@ def execute_trade_safely(exchange, symbol, side, amount, price, params, current_
             order = exchange.fapiPrivatePostOrder(req_params)
             
             executed = True
-            log_trade(datetime.now().isoformat(), symbol, side, final_amount, price, signal_msg, "FILLED")
-            print(f"      ✅ FILLED: {order['orderId']}")
             
-            # Update active_positions immediately
+            # Update active_positions immediately & Calculate PnL
             if params.get('reduceOnly', False):
                 # Closing Position
                 if symbol in active_positions:
+                    # Calculate Realized PnL
+                    entry_price = active_positions[symbol]['entry']
+                    pos_amt = active_positions[symbol]['amt']
+                    
+                    # If we were Long (pos_amt > 0), we are Selling. PnL = (Exit - Entry) * Qty
+                    # If we were Short (pos_amt < 0), we are Buying. PnL = (Entry - Exit) * Qty
+                    
+                    # Dynamic Fee Retrieval
+                    try:
+                        market_info = exchange.market(symbol)
+                        fee_rate = market_info.get('taker', 0.0005) # Default to 0.05% if not found
+                    except:
+                        fee_rate = 0.0005 
+                    entry_fee = (entry_price * final_amount) * fee_rate
+                    exit_fee = (price * final_amount) * fee_rate
+                    total_fees = entry_fee + exit_fee
+
+                    if pos_amt > 0: # Long Close
+                        gross_pnl = (price - entry_price) * final_amount
+                    else: # Short Close
+                        gross_pnl = (entry_price - price) * final_amount
+                    
+                    realized_pnl = gross_pnl - total_fees
+                        
                     del active_positions[symbol]
             else:
                 # Opening / Adding Position
@@ -82,6 +105,10 @@ def execute_trade_safely(exchange, symbol, side, amount, price, params, current_
                     amt_signed = final_amount if side == 'buy' else -final_amount
                     active_positions[symbol] = {'amt': amt_signed, 'entry': price, 'pnl': 0.0, 'entry_time': datetime.now().isoformat(), 'dca_count': 0}
             
+            # Log Trade with PnL
+            log_trade(datetime.now().isoformat(), symbol, side, final_amount, price, signal_msg, "FILLED", realized_pnl)
+            print(f"      ✅ FILLED: {order['orderId']} | PnL: ${realized_pnl:.2f}")
+
             # Update Local Margin (only if opening/increasing risk)
             if not params.get('reduceOnly', False):
                 used_margin = (final_amount * price) / leverage
@@ -139,7 +166,7 @@ def execute_trade_safely(exchange, symbol, side, amount, price, params, current_
     
     if not executed:
         print(f"   ❌ Order Failed for {symbol} after {attempts} retries. Last Error: {last_error}")
-        log_trade(datetime.now().isoformat(), symbol, side, amount, price, signal_msg, f"FAILED: {last_error}")
+        log_trade(datetime.now().isoformat(), symbol, side, amount, price, signal_msg, f"FAILED: {last_error}", 0.0)
         
         # Auto-Blacklist on persistent unknown failures
         if attempts >= max_attempts:

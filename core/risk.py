@@ -12,7 +12,7 @@ def check_circuit_breaker(initial_balance, current_balance):
 
 def get_risk_cleanup_actions(active_positions, global_sentiment):
     """
-    Scans active positions for Stale, Zombie, or Wrong-Way trades.
+    Scans active positions for Stale, Zombie, Toxic, or Wrong-Way trades.
     Returns a list of actions (dicts) to close these positions.
     """
     actions = []
@@ -46,37 +46,28 @@ def get_risk_cleanup_actions(active_positions, global_sentiment):
             })
             continue
 
-        # 2. STALE / ZOMBIE TRADES
+        # 2. TOXIC ASSET PURGE (High Loss Velocity)
+        # If a position loses > 5% ROI in less than 30 minutes, kill it.
         if 'entry_time' not in pos:
             pos['entry_time'] = current_time.isoformat()
         
         try:
             entry_t = datetime.fromisoformat(pos['entry_time'])
-            duration_hours = (current_time - entry_t).total_seconds() / 3600
+            duration_minutes = (current_time - entry_t).total_seconds() / 60
+            duration_hours = duration_minutes / 60
             
-            # Stagnant: > 4 hours and ROI < 0.5%
-            if duration_hours > 4.0 and roi < 0.005:
+            if duration_minutes < 30 and roi < -0.05:
                 side = 'sell' if pos['amt'] > 0 else 'buy'
                 actions.append({
                     'symbol': sym,
                     'side': side,
                     'amount': abs(pos['amt']),
                     'price': pos.get('price', pos['entry']),
-                    'reason': f"EXIT_STALE ({duration_hours:.1f}h, ROI {roi*100:.2f}%)",
+                    'reason': f"TOXIC_ASSET_PURGE (Drop {roi*100:.1f}% in {duration_minutes:.0f}m)",
                     'reduceOnly': True
                 })
-            
-            # Zombie: > 6 hours and Losing
-            elif duration_hours > 6.0 and pos['pnl'] < 0:
-                side = 'sell' if pos['amt'] > 0 else 'buy'
-                actions.append({
-                    'symbol': sym,
-                    'side': side,
-                    'amount': abs(pos['amt']),
-                    'price': pos.get('price', pos['entry']),
-                    'reason': f"EXIT_ZOMBIE ({duration_hours:.1f}h, PnL ${pos['pnl']:.2f})",
-                    'reduceOnly': True
-                })
+                continue
+
         except:
             pass
             
