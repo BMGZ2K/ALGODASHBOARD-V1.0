@@ -59,3 +59,9 @@ def merge_state_positions(active_positions, saved_state):
                 pos['min_price'] = saved_p['min_price']
             if 'dca_count' in saved_p:
                 pos['dca_count'] = saved_p['dca_count']
+            if 'entry_time' in saved_p:
+                pos['entry_time'] = saved_p['entry_time']
+            if 'tp_count' in saved_p:
+                pos['tp_count'] = saved_p['tp_count']
+            if 'trail_stop' in saved_p:
+                pos['trail_stop'] = saved_p['trail_stop']

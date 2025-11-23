@@ -1,14 +1,25 @@
 from datetime import datetime
 from .config import CIRCUIT_BREAKER_DRAWDOWN
 
-def check_circuit_breaker(initial_balance, current_balance):
+def check_circuit_breaker(initial_balance, current_balance, high_water_mark):
     """
-    Checks if drawdown exceeds the limit.
-    Returns (is_triggered, drawdown_pct)
+    Checks if drawdown exceeds the limit relative to the High Water Mark (Peak Balance).
+    Returns (is_triggered, drawdown_pct, new_high_water_mark)
     """
-    if initial_balance <= 0: return False, 0.0
-    drawdown_pct = (initial_balance - current_balance) / initial_balance
-    return drawdown_pct > CIRCUIT_BREAKER_DRAWDOWN, drawdown_pct
+    if initial_balance <= 0: return False, 0.0, 0.0
+    
+    # Update High Water Mark
+    new_high_water_mark = max(high_water_mark, current_balance)
+    
+    # Calculate Drawdown from Peak
+    if new_high_water_mark > 0:
+        drawdown_pct = (new_high_water_mark - current_balance) / new_high_water_mark
+    else:
+        drawdown_pct = 0.0
+    
+    is_triggered = drawdown_pct > CIRCUIT_BREAKER_DRAWDOWN
+    
+    return is_triggered, drawdown_pct, new_high_water_mark
 
 def get_risk_cleanup_actions(active_positions, global_sentiment):
     """

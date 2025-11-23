@@ -1,6 +1,6 @@
 import ccxt
 import time
-from .config import API_KEY, SECRET_KEY, USE_TESTNET, SYMBOLS
+from .config import API_KEY, SECRET_KEY, USE_TESTNET, SYMBOLS, LEVERAGE_CAP
 
 def apply_monkey_patches(exchange):
     # FORCE OVERRIDE CAPABILITIES TO PREVENT MARGIN CALLS
@@ -209,7 +209,7 @@ def setup_markets(exchange):
                 # Raw leverage set
                 exchange.fapiPrivatePostLeverage({
                     'symbol': sym.replace('/', ''),
-                    'leverage': 5
+                    'leverage': LEVERAGE_CAP
                 })
             except Exception as e_lev:
                 print(f"      ⚠️ Leverage Error for {sym}: {e_lev}")

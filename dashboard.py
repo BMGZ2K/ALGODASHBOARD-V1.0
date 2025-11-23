@@ -158,6 +158,22 @@ with tab1:
             amt = data['amt']
             roi = (pnl / (abs(amt) * entry / 5)) * 100 if entry > 0 else 0 # Est 5x lev
             
+            # Calculate Duration
+            duration_str = "Just now"
+            if 'entry_time' in data:
+                try:
+                    entry_dt = datetime.fromisoformat(data['entry_time'])
+                    diff = datetime.now() - entry_dt
+                    hours, remainder = divmod(diff.seconds, 3600)
+                    minutes, _ = divmod(remainder, 60)
+                    days = diff.days
+                    if days > 0:
+                        duration_str = f"{days}d {hours}h {minutes}m"
+                    else:
+                        duration_str = f"{hours}h {minutes}m"
+                except:
+                    duration_str = "N/A"
+
             pos_data.append({
                 "Symbol": sym,
                 "Side": "LONG" if amt > 0 else "SHORT",
@@ -165,7 +181,7 @@ with tab1:
                 "Entry": entry,
                 "PnL": pnl,
                 "ROI": roi,
-                "Duration": data.get('entry_time', 'N/A')
+                "Duration": duration_str
             })
         
         df_pos = pd.DataFrame(pos_data)
@@ -324,7 +340,7 @@ with tab3:
 with tab4:
     st.subheader("System Logs")
     if os.path.exists(BOT_OUTPUT_LOG):
-        with open(BOT_OUTPUT_LOG, "r") as f:
+        with open(BOT_OUTPUT_LOG, "r", encoding='utf-8', errors='replace') as f:
             lines = f.readlines()[-50:]
             st.code("".join(lines), language="text")
 
@@ -338,7 +354,7 @@ with tab5:
         st.rerun()
         
     if os.path.exists(STRATEGY_LOG_FILE):
-        with open(STRATEGY_LOG_FILE, "r") as f:
+        with open(STRATEGY_LOG_FILE, "r", encoding='utf-8', errors='replace') as f:
             # Read last 200 lines to avoid huge load
             lines = f.readlines()[-200:]
             # Reverse to show newest first
